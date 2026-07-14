@@ -716,7 +716,7 @@ function drwRain(){
 function drwRainbow(){
   if(rainbow<0.01)return;
   c.save();c.globalAlpha=rainbow*0.25;
-  var cx=W*0.35+Math.sin(rainbow*3)*40,cy=H*0.9,r=H*0.45;
+  var cx=W*0.35+Math.sin(rainbow*3)*40,cy=H*0.55,r=H*0.35;
   var cols=["#FF6B6B","#FFA85C","#FFE082","#A5D6A7","#81D4FA","#9575CD","#CE93D8"];
   for(var i=0;i<cols.length;i++){
     c.strokeStyle=cols[i];c.lineWidth=4;

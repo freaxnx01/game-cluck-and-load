@@ -468,14 +468,19 @@ function drwPopChick(p){
   c.fillStyle="#D4380D";c.beginPath();c.ellipse(0,bob-10,3,5,0,0,Math.PI*2);c.fill();
   // beak (pointing forward/down at player)
   c.fillStyle="#F5A623";c.beginPath();c.moveTo(-4,bob-15);c.lineTo(4,bob-15);c.lineTo(0,bob-9);c.closePath();c.fill();
-  // eyes (both facing player, wide stare)
-  c.fillStyle="#FFF";c.beginPath();c.arc(-6,bob-19,4,0,Math.PI*2);c.fill();
-  c.beginPath();c.arc(6,bob-19,4,0,Math.PI*2);c.fill();
-  c.fillStyle="#000";c.beginPath();c.arc(-6,bob-19,2.5,0,Math.PI*2);c.fill();
-  c.beginPath();c.arc(6,bob-19,2.5,0,Math.PI*2);c.fill();
-  // eye shine
-  c.fillStyle="#FFF";c.beginPath();c.arc(-5,bob-20,1,0,Math.PI*2);c.fill();
-  c.beginPath();c.arc(7,bob-20,1,0,Math.PI*2);c.fill();
+  // eyes: X when hit, wide stare when alive
+  if(p.ducked){
+    c.strokeStyle="#000";c.lineWidth=2;c.lineCap="round";
+    c.beginPath();c.moveTo(-9,bob-22);c.lineTo(-3,bob-16);c.moveTo(-3,bob-22);c.lineTo(-9,bob-16);c.stroke();
+    c.beginPath();c.moveTo(3,bob-22);c.lineTo(9,bob-16);c.moveTo(9,bob-22);c.lineTo(3,bob-16);c.stroke();
+  } else {
+    c.fillStyle="#FFF";c.beginPath();c.arc(-6,bob-19,4,0,Math.PI*2);c.fill();
+    c.beginPath();c.arc(6,bob-19,4,0,Math.PI*2);c.fill();
+    c.fillStyle="#000";c.beginPath();c.arc(-6,bob-19,2.5,0,Math.PI*2);c.fill();
+    c.beginPath();c.arc(6,bob-19,2.5,0,Math.PI*2);c.fill();
+    c.fillStyle="#FFF";c.beginPath();c.arc(-5,bob-20,1,0,Math.PI*2);c.fill();
+    c.beginPath();c.arc(7,bob-20,1,0,Math.PI*2);c.fill();
+  }
   c.restore();
   c.restore();
 }
@@ -703,6 +708,17 @@ function drwBg(){
   c.fillStyle=sng;c.beginPath();c.arc(sx,sy,sr*3,0,Math.PI*2);c.fill();
   c.fillStyle=sunCol;c.beginPath();c.arc(sx,sy,sr,0,Math.PI*2);c.fill();
   for(var i=0;i<clouds.length;i++)drwCloud(clouds[i]);
+  // Rainbow (drawn before hills so ends are hidden behind them)
+  if(rainbow>0.01){
+    c.save();c.globalAlpha=rainbow*0.25;
+    var rcx=W*0.35+Math.sin(rainbow*3)*40,rcy=H*0.75,rr=H*0.3;
+    var rcols=["#FF6B6B","#FFA85C","#FFE082","#A5D6A7","#81D4FA","#9575CD","#CE93D8"];
+    for(var i=0;i<rcols.length;i++){
+      c.strokeStyle=rcols[i];c.lineWidth=4;
+      c.beginPath();c.arc(rcx,rcy,rr-i*5,Math.PI,0);c.stroke();
+    }
+    c.restore();
+  }
   drwMtn(bgOff*0.15,"#7A8FA6",0.22,H*0.48);
   drwMtn(bgOff*0.3,"#6B8C5A",0.18,H*0.55);
   drwHill(bgOff*0.55,"#5A9E3E",40,0.006,H*0.65);
@@ -764,17 +780,6 @@ function drwRain(){
   for(var i=0;i<rainDrops.length;i++){
     var r=rainDrops[i];
     c.beginPath();c.moveTo(r.x,r.y);c.lineTo(r.x-3,r.y+12);c.stroke();
-  }
-  c.restore();
-}
-function drwRainbow(){
-  if(rainbow<0.01)return;
-  c.save();c.globalAlpha=rainbow*0.25;
-  var cx=W*0.35+Math.sin(rainbow*3)*40,cy=H*0.75,r=H*0.3;
-  var cols=["#FF6B6B","#FFA85C","#FFE082","#A5D6A7","#81D4FA","#9575CD","#CE93D8"];
-  for(var i=0;i<cols.length;i++){
-    c.strokeStyle=cols[i];c.lineWidth=4;
-    c.beginPath();c.arc(cx,cy,r-i*5,Math.PI,0);c.stroke();
   }
   c.restore();
 }
@@ -1305,16 +1310,7 @@ function draw(){
     for(var i=0;i<flashes.length;i++)drwFlash(flashes[i]);
     for(var i=0;i<pops.length;i++)drwPop(pops[i]);
     c.restore();
-    drwRain();drwRainbow();
-    // Redraw ground over rainbow ends so it appears behind hills
-    if(rainbow>0.01){
-      c.save();
-      var gg=c.createLinearGradient(0,H*0.68,0,H*0.73);
-      gg.addColorStop(0,"rgba(74,140,47,0)");gg.addColorStop(1,"#4A8C2F");
-      c.fillStyle=gg;c.fillRect(0,H*0.68,W,H*0.05);
-      c.fillStyle="#4A8C2F";c.fillRect(0,H*0.72,W,H*0.28);
-      c.restore();
-    }
+    drwRain();
     if(flash>0){c.fillStyle="rgba(255,255,255,"+flash+")";c.fillRect(0,0,W,H);}
     if(sniperZoom>0.01)drwScope();
     drwHUD();drwCH();

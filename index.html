@@ -757,8 +757,7 @@ function drwRain(){
 function drwRainbow(){
   if(rainbow<0.01)return;
   c.save();c.globalAlpha=rainbow*0.25;
-  c.beginPath();c.rect(0,0,W,H*0.65);c.clip();
-  var cx=W*0.35+Math.sin(rainbow*3)*40,cy=H*0.55,r=H*0.35;
+  var cx=W*0.35+Math.sin(rainbow*3)*40,cy=H*0.75,r=H*0.3;
   var cols=["#FF6B6B","#FFA85C","#FFE082","#A5D6A7","#81D4FA","#9575CD","#CE93D8"];
   for(var i=0;i<cols.length;i++){
     c.strokeStyle=cols[i];c.lineWidth=4;
@@ -1294,6 +1293,15 @@ function draw(){
     for(var i=0;i<pops.length;i++)drwPop(pops[i]);
     c.restore();
     drwRain();drwRainbow();
+    // Redraw ground over rainbow ends so it appears behind hills
+    if(rainbow>0.01){
+      c.save();
+      var gg=c.createLinearGradient(0,H*0.68,0,H*0.73);
+      gg.addColorStop(0,"rgba(74,140,47,0)");gg.addColorStop(1,"#4A8C2F");
+      c.fillStyle=gg;c.fillRect(0,H*0.68,W,H*0.05);
+      c.fillStyle="#4A8C2F";c.fillRect(0,H*0.72,W,H*0.28);
+      c.restore();
+    }
     if(flash>0){c.fillStyle="rgba(255,255,255,"+flash+")";c.fillRect(0,0,W,H);}
     if(sniperZoom>0.01)drwScope();
     drwHUD();drwCH();

@@ -178,6 +178,36 @@ function sndExplosion(){
     o.connect(g2);g2.connect(x.destination);o.start(t);o.stop(t+0.55);
   }catch(e){}
 }
+function sndStuka(){
+  try{
+    var x=aud(),t=x.currentTime,dur=1.2;
+    // Wailing siren (Jericho trumpet)
+    var o=x.createOscillator(),g=x.createGain();
+    o.type="sawtooth";
+    o.frequency.setValueAtTime(300,t);
+    o.frequency.exponentialRampToValueAtTime(900,t+0.3);
+    o.frequency.exponentialRampToValueAtTime(400,t+0.8);
+    o.frequency.exponentialRampToValueAtTime(150,t+dur);
+    g.gain.setValueAtTime(0.001,t);
+    g.gain.exponentialRampToValueAtTime(0.25,t+0.1);
+    g.gain.setValueAtTime(0.25,t+0.5);
+    g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+    var f=x.createBiquadFilter();f.type="bandpass";f.frequency.value=1200;f.Q.value=3;
+    o.connect(f);f.connect(g);g.connect(x.destination);o.start(t);o.stop(t+dur+0.1);
+    // Second oscillator for harmony dissonance
+    var o2=x.createOscillator(),g2=x.createGain();
+    o2.type="sawtooth";
+    o2.frequency.setValueAtTime(350,t);
+    o2.frequency.exponentialRampToValueAtTime(1000,t+0.3);
+    o2.frequency.exponentialRampToValueAtTime(450,t+0.8);
+    o2.frequency.exponentialRampToValueAtTime(170,t+dur);
+    g2.gain.setValueAtTime(0.001,t);
+    g2.gain.exponentialRampToValueAtTime(0.15,t+0.1);
+    g2.gain.exponentialRampToValueAtTime(0.001,t+dur);
+    var f2=x.createBiquadFilter();f2.type="bandpass";f2.frequency.value=1500;f2.Q.value=2;
+    o2.connect(f2);f2.connect(g2);g2.connect(x.destination);o2.start(t);o2.stop(t+dur+0.1);
+  }catch(e){}
+}
 function sndSniper(){
   try{
     var x=aud(),t=x.currentTime;
@@ -305,10 +335,10 @@ function mkBird(type, dir) {
     type:type,dir:dir,st:"FLY",sc:cfg.sc,pt:cfg.pt,col:cfg.col,
     x:dir===1?-50:W+50, y:groundY-40-Math.random()*(groundY-120),
     vx:(cfg.sp[0]+Math.random()*(cfg.sp[1]-cfg.sp[0]))*dir, vy:0,
-    pat:Math.random()<0.4?"sine":(Math.random()<0.5?"straight":"wave"),
+    pat:Math.random()<0.4?"sine":(Math.random()<0.5?"straight":(Math.random()<0.3?"loop":"wave")),
     baseY:0,phase:Math.random()*6.28,amp:30+Math.random()*50,freq:1.5+Math.random()*2,
     wPh:Math.random()*6.28,wSpd:10+Math.random()*4,
-    rot:0,rSpd:0,dvx:0,dvy:0,spkT:0,
+    rot:0,rSpd:0,dvx:0,dvy:0,spkT:0,loopT:0,loopRot:0,
     hRx:24*cfg.sc,hRy:17*cfg.sc
   };
   b.baseY=b.y;
@@ -319,6 +349,14 @@ function updBird(b,dt){
     b.x+=b.vx*dt;b.wPh+=b.wSpd*dt;b.phase+=b.freq*dt;
     if(b.pat==="sine")b.y=b.baseY+Math.sin(b.phase)*b.amp;
     else if(b.pat==="wave"){b.y=b.baseY+Math.sin(b.phase)*b.amp*0.5;b.vx+=Math.cos(b.phase*1.7)*30*dt;}
+    else if(b.pat==="loop"){
+      b.loopT+=dt;
+      var loopDur=2.5;
+      var lt=(b.loopT%loopDur)/loopDur;
+      b.loopRot=lt*Math.PI*2;
+      b.y=b.baseY-Math.sin(lt*Math.PI)*80;
+      b.x+=Math.cos(b.phase*2)*20*dt;
+    }
     if(b.dir===1&&b.x>W+80)b.st="GONE";
     if(b.dir===-1&&b.x<-80)b.st="GONE";
     if(b.type==="golden"){b.spkT+=dt;if(b.spkT>0.1){b.spkT=0;parts.push(mkPart(b.x+(Math.random()-0.5)*30,b.y+(Math.random()-0.5)*20,"spark","#FFD700"));}}
@@ -332,6 +370,7 @@ function drwBird(b){
   c.save();c.translate(b.x,b.y);
   if(b.st==="FLY"){c.save();c.globalAlpha=0.15;c.fillStyle="#000";c.beginPath();c.ellipse(0,H*0.72-b.y+40,20*b.sc,5*b.sc,0,0,Math.PI*2);c.fill();c.restore();}
   if(b.st==="HIT")c.rotate(b.rot);
+  if(b.pat==="loop"&&b.st==="FLY")c.rotate(b.loopRot);
   var s=b.sc,d=b.dir;c.scale(d,1);
   var wy=Math.sin(b.wPh)*10*s;
   c.fillStyle=b.col.wing;
@@ -370,12 +409,14 @@ function killBird(b){
   var fc=[b.col.body,b.col.wing,b.col.belly,"#FFF","#F5DEB3"];
   for(var i=0;i<12;i++)parts.push(mkPart(b.x+(Math.random()-0.5)*20,b.y+(Math.random()-0.5)*15,"feather",fc[i%fc.length]));
   for(var i=0;i<6;i++)parts.push(mkPart(b.x,b.y,"spark","#FFA500"));
+  // Sometimes play Stuka dive-bomber crash sound
+  if(Math.random()<0.25)sndStuka();
 }
 
 // --- POP-UP CHICKEN (pops from below, close to camera) ---
 function mkPopChick(){
   var x=80+Math.random()*(W-160),groundY=H*0.72;
-  return{x:x,y:H+60,baseX:x,st:"UP",t:0,upDur:1.0+Math.random()*0.8,waitDur:0.8+Math.random()*0.6,downDur:0.7,sc:3.5+Math.random()*1.5,pt:30,wPh:Math.random()*6.28,hRx:30,hRy:40,ducked:false};
+  return{x:x,y:H+60,baseX:x,st:"UP",t:0,upDur:1.0+Math.random()*0.8,waitDur:0.8+Math.random()*0.6,downDur:0.7,sc:5.5+Math.random()*2.5,pt:30,wPh:Math.random()*6.28,hRx:30,hRy:40,ducked:false};
 }
 function updPopChick(p,dt){
   p.t+=dt;p.wPh+=8*dt;
@@ -716,6 +757,7 @@ function drwRain(){
 function drwRainbow(){
   if(rainbow<0.01)return;
   c.save();c.globalAlpha=rainbow*0.25;
+  c.beginPath();c.rect(0,0,W,H*0.65);c.clip();
   var cx=W*0.35+Math.sin(rainbow*3)*40,cy=H*0.55,r=H*0.35;
   var cols=["#FF6B6B","#FFA85C","#FFE082","#A5D6A7","#81D4FA","#9575CD","#CE93D8"];
   for(var i=0;i<cols.length;i++){

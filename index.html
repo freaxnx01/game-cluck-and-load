@@ -710,12 +710,13 @@ function drwBg(){
   for(var i=0;i<clouds.length;i++)drwCloud(clouds[i]);
   // Rainbow (drawn before hills so ends are hidden behind them)
   if(rainbow>0.01){
-    c.save();c.globalAlpha=rainbow*0.25;
-    var rcx=W*0.35+Math.sin(rainbow*3)*40,rcy=H*0.75,rr=H*0.3;
+    c.save();c.globalAlpha=rainbow*0.5;
+    var rcx=W*0.35+Math.sin(rainbow*3)*40,rcy=H*0.72,rr=H*0.32;
     var rcols=["#FF6B6B","#FFA85C","#FFE082","#A5D6A7","#81D4FA","#9575CD","#CE93D8"];
-    for(var i=0;i<rcols.length;i++){
-      c.strokeStyle=rcols[i];c.lineWidth=4;
-      c.beginPath();c.arc(rcx,rcy,rr-i*5,Math.PI,0);c.stroke();
+    c.lineWidth=5;
+    for(var ri=0;ri<rcols.length;ri++){
+      c.strokeStyle=rcols[ri];
+      c.beginPath();c.arc(rcx,rcy,rr-ri*6,Math.PI,0);c.stroke();
     }
     c.restore();
   }
@@ -767,7 +768,7 @@ function updWeather(dt){
   }
   rainDrops=rainDrops.filter(function(r){return r.life>0;});
   // Rainbow fade
-  if(rainbow>0)rainbow=Math.max(0,rainbow-dt*0.15);
+  if(rainbow>0)rainbow=Math.max(0,rainbow-dt*0.08);
 }
 function drwRain(){
   if(rainIntensity<0.01&&rainbow<0.01)return;
@@ -1226,7 +1227,7 @@ function initGame(){
   spawnT=0;spawnI=1.8;flash=0;shake=0;goTimer=0;finalDisp=0;
   heat=0;overheated=false;overheatTimer=0;fireTimer=0;mDown=false;
   popSpawnT=6+Math.random()*4;ufoSpawnT=12+Math.random()*8;sniperZoom=0;
-  weather="clear";weatherT=15;rainDrops=[];rainbow=0;rainIntensity=0;
+  weather="clear";weatherT=8;rainDrops=[];rainbow=0;rainIntensity=0;
   timeOfDay=0;missileSide=0;
 }
 

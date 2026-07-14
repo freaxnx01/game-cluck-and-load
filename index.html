@@ -351,11 +351,24 @@ function updBird(b,dt){
     else if(b.pat==="wave"){b.y=b.baseY+Math.sin(b.phase)*b.amp*0.5;b.vx+=Math.cos(b.phase*1.7)*30*dt;}
     else if(b.pat==="loop"){
       b.loopT+=dt;
-      var loopDur=2.5;
+      var loopDur=3.5;
       var lt=(b.loopT%loopDur)/loopDur;
-      b.loopRot=lt*Math.PI*2;
-      b.y=b.baseY-Math.sin(lt*Math.PI)*80;
-      b.x+=Math.cos(b.phase*2)*20*dt;
+      // Phase 1 (0-0.2): dive down, lose altitude
+      // Phase 2 (0.2-0.8): pull up, climb and rotate over the top
+      // Phase 3 (0.8-1.0): level out, recover
+      if(lt<0.2){
+        var k=lt/0.2;
+        b.y=b.baseY+60*k*k;
+        b.loopRot=0;
+      } else if(lt<0.8){
+        var k=(lt-0.2)/0.6;
+        b.y=b.baseY+60-140*Math.sin(k*Math.PI);
+        b.loopRot=k*Math.PI*2;
+      } else {
+        var k=(lt-0.8)/0.2;
+        b.y=b.baseY+60-140*Math.sin(Math.PI)*(1-k);
+        b.loopRot=Math.PI*2;
+      }
     }
     if(b.dir===1&&b.x>W+80)b.st="GONE";
     if(b.dir===-1&&b.x<-80)b.st="GONE";

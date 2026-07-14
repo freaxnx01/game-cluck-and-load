@@ -40,6 +40,11 @@ window.addEventListener("resize", rez);
 // --- CONSTANTS ---
 var DURATION = 90, MAX_AMMO = 6, RELOAD_T = 1.3, MAX_COMBO = 5;
 var MG_AMMO = 50, MG_RELOAD_T = 2.8, MG_FIRE_RATE = 0.08, MAX_HEAT = 100, HEAT_PER_SHOT = 3.5, HEAT_COOL_RATE = 18, OVERHEAT_PENALTY = 3.0;
+var SNIPER_AMMO = 5, SNIPER_RELOAD_T = 3.5;
+var MSL_AMMO = 3, MSL_RELOAD_T = 4.0;
+var WEAPONS = ["shotgun","mg","sniper","missile"];
+var WPN_AMMO = {shotgun:MAX_AMMO,mg:MG_AMMO,sniper:SNIPER_AMMO,missile:MSL_AMMO};
+var WPN_RELOAD = {shotgun:RELOAD_T,mg:MG_RELOAD_T,sniper:SNIPER_RELOAD_T,missile:MSL_RELOAD_T};
 
 // --- STATE ---
 var state = "MENU", score = 0, timeLeft = DURATION, ammo = MAX_AMMO;
@@ -53,8 +58,8 @@ var birds = [], parts = [], pops = [], clouds = [], flashes = [];
 var trees = [];
 var audioCtx = null;
 
-// --- MACHINE GUN STATE ---
-var mgMode = false;
+// --- WEAPON STATE ---
+var weapon = 0; // 0=shotgun 1=mg 2=sniper 3=missile
 var mDown = false;
 var fireTimer = 0;
 var heat = 0;
@@ -62,6 +67,20 @@ var overheated = false;
 var overheatTimer = 0;
 var mgShakeAccum = 0;
 var shellCasings = [];
+var sniperZoom = 0; // 0..1 zoom factor
+var missiles = []; // active homing missiles
+
+// --- WEATHER STATE ---
+var weather="clear",weatherT=15,rainDrops=[],rainbow=0,rainIntensity=0;
+
+// --- TIME OF DAY STATE ---
+var timeOfDay=0; // 0=dawn, 0.5=noon, 1.0=sunset
+
+// --- POP-UP CHICKEN STATE ---
+var popChicks = [], popSpawnT = 8;
+
+// --- UFO STATE ---
+var ufos = [], ufoSpawnT = 15;
 
 // --- AUDIO ---
 function aud() {
@@ -139,6 +158,59 @@ function sndToggle() {
     g.gain.setValueAtTime(0.1,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.12);
     o.connect(g); g.connect(x.destination); o.start(t); o.stop(t+0.15);
   } catch(e){}
+}
+function sndExplosion(){
+  try{
+    var x=aud(),t=x.currentTime;
+    // Noise burst
+    var d=0.6,b=x.createBuffer(1,x.sampleRate*d|0,x.sampleRate);
+    var a=b.getChannelData(0);
+    for(var i=0;i<a.length;i++)a[i]=(Math.random()*2-1)*Math.pow(1-i/a.length,2);
+    var s=x.createBufferSource();s.buffer=b;
+    var f=x.createBiquadFilter();f.type="lowpass";f.frequency.setValueAtTime(800,t);f.frequency.exponentialRampToValueAtTime(60,t+0.5);
+    var g=x.createGain();g.gain.setValueAtTime(0.5,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.6);
+    s.connect(f);f.connect(g);g.connect(x.destination);s.start(t);
+    // Low rumble
+    var o=x.createOscillator(),g2=x.createGain();
+    o.type="sine";o.frequency.setValueAtTime(120,t);o.frequency.exponentialRampToValueAtTime(30,t+0.5);
+    g2.gain.setValueAtTime(0.3,t);g2.gain.exponentialRampToValueAtTime(0.001,t+0.5);
+    o.connect(g2);g2.connect(x.destination);o.start(t);o.stop(t+0.55);
+  }catch(e){}
+}
+function sndSniper(){
+  try{
+    var x=aud(),t=x.currentTime;
+    var d=0.2,b=x.createBuffer(1,x.sampleRate*d|0,x.sampleRate);
+    var a=b.getChannelData(0);
+    for(var i=0;i<a.length;i++)a[i]=(Math.random()*2-1)*Math.pow(1-i/a.length,3);
+    var s=x.createBufferSource();s.buffer=b;
+    var f=x.createBiquadFilter();f.type="bandpass";f.frequency.value=1800;f.Q.value=0.5;
+    var g=x.createGain();g.gain.setValueAtTime(0.5,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.2);
+    s.connect(f);f.connect(g);g.connect(x.destination);s.start(t);
+    var o=x.createOscillator(),g2=x.createGain();
+    o.type="sine";o.frequency.setValueAtTime(400,t);o.frequency.exponentialRampToValueAtTime(80,t+0.15);
+    g2.gain.setValueAtTime(0.2,t);g2.gain.exponentialRampToValueAtTime(0.001,t+0.15);
+    o.connect(g2);g2.connect(x.destination);o.start(t);o.stop(t+0.2);
+  }catch(e){}
+}
+function sndMissile(){
+  try{
+    var x=aud(),t=x.currentTime;
+    var o=x.createOscillator(),g=x.createGain();
+    o.type="sawtooth";o.frequency.setValueAtTime(300,t);o.frequency.exponentialRampToValueAtTime(600,t+0.3);
+    g.gain.setValueAtTime(0.15,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.3);
+    var f=x.createBiquadFilter();f.type="lowpass";f.frequency.value=2000;
+    o.connect(f);f.connect(g);g.connect(x.destination);o.start(t);o.stop(t+0.35);
+  }catch(e){}
+}
+function sndLock(){
+  try{
+    var x=aud(),t=x.currentTime;
+    var o=x.createOscillator(),g=x.createGain();
+    o.type="square";o.frequency.setValueAtTime(800,t);o.frequency.setValueAtTime(1200,t+0.05);
+    g.gain.setValueAtTime(0.1,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.1);
+    o.connect(g);g.connect(x.destination);o.start(t);o.stop(t+0.12);
+  }catch(e){}
 }
 
 // --- CLOUD ---
@@ -299,16 +371,246 @@ function killBird(b){
   for(var i=0;i<6;i++)parts.push(mkPart(b.x,b.y,"spark","#FFA500"));
 }
 
+// --- POP-UP CHICKEN (pops from below, close to camera) ---
+function mkPopChick(){
+  var x=80+Math.random()*(W-160),groundY=H*0.72;
+  return{x:x,y:H+60,baseX:x,st:"UP",t:0,upDur:1.0+Math.random()*0.8,waitDur:0.8+Math.random()*0.6,downDur:0.7,sc:3.5+Math.random()*1.5,pt:30,wPh:Math.random()*6.28,hRx:30,hRy:40,ducked:false};
+}
+function updPopChick(p,dt){
+  p.t+=dt;p.wPh+=8*dt;
+  if(p.st==="UP"){p.y=H+60-(p.t/p.upDur)*(H+60-H*0.78);if(p.t>=p.upDur){p.st="WAIT";p.t=0;p.y=H*0.78;}}
+  else if(p.st==="WAIT"){p.y=H*0.78+Math.sin(p.wPh*0.5)*3;if(p.t>=p.waitDur){p.st="DOWN";p.t=0;}}
+  else if(p.st==="DOWN"){p.y=H*0.78+(p.t/p.downDur)*(H+60-H*0.78);if(p.t>=p.downDur)p.st="GONE";}
+}
+function drwPopChick(p){
+  if(p.st==="GONE")return;
+  c.save();c.translate(p.x,p.y);var s=p.sc;
+  // shadow
+  c.save();c.globalAlpha=0.2;c.fillStyle="#000";c.beginPath();c.ellipse(0,H*0.72-p.y+50,28*s,6*s,0,0,Math.PI*2);c.fill();c.restore();
+  // body (only upper half visible, rest behind grass)
+  c.scale(s,s);
+  // crop to grass line
+  c.save();c.beginPath();c.rect(-50,-80,100,80-(H*0.72-p.y)/s);c.clip();
+  var wy=Math.sin(p.wPh)*6;
+  // wings
+  c.fillStyle="#6B4F12";c.beginPath();c.moveTo(-18,-3);c.quadraticCurveTo(-36,-22,-28,-30);c.quadraticCurveTo(-24,-14,-20,-8);c.fill();
+  c.beginPath();c.moveTo(-18,0);c.quadraticCurveTo(-40,-12,-34,-20);c.quadraticCurveTo(-28,-6,-20,-2);c.fill();
+  // body
+  c.fillStyle="#8B6914";c.beginPath();c.ellipse(0,0,26,19,0,0,Math.PI*2);c.fill();
+  c.fillStyle="#D4A853";c.beginPath();c.ellipse(4,5,17,13,0.1,0,Math.PI*2);c.fill();
+  c.fillStyle="#6B4F12";c.save();c.translate(-4,-4);c.rotate(Math.sin(p.wPh)*0.4);c.beginPath();c.ellipse(0,wy*0.3,17,9,-0.2,0,Math.PI*2);c.fill();c.restore();
+  // head
+  c.fillStyle="#8B6914";c.beginPath();c.arc(21,-16,11,0,Math.PI*2);c.fill();
+  // comb
+  c.fillStyle="#D4380D";c.beginPath();c.arc(17,-27,3.5,0,Math.PI*2);c.fill();c.beginPath();c.arc(21,-29,3.5,0,Math.PI*2);c.fill();c.beginPath();c.arc(25,-27,3.5,0,Math.PI*2);c.fill();
+  // beak
+  c.fillStyle="#F5A623";c.beginPath();c.moveTo(30,-17);c.lineTo(40,-14);c.lineTo(30,-11);c.closePath();c.fill();
+  // eyes
+  c.fillStyle="#FFF";c.beginPath();c.arc(24,-17,3.5,0,Math.PI*2);c.fill();
+  c.fillStyle="#000";c.beginPath();c.arc(25,-17,2.2,0,Math.PI*2);c.fill();
+  c.fillStyle="#FFF";c.beginPath();c.arc(25.8,-18,0.9,0,Math.PI*2);c.fill();
+  c.restore();
+  c.restore();
+}
+function hitTestPopChick(p,px,py){
+  if(p.st==="GONE"||p.st==="DOWN")return false;
+  var dx=(px-p.x)/p.hRx,dy=(py-p.y)/p.hRy;
+  return dx*dx+dy*dy<=1;
+}
+function killPopChick(p){
+  p.st="DOWN";p.t=0;p.ducked=true;
+  var fc=["#8B6914","#6B4F12","#D4A853","#FFF","#F5DEB3"];
+  for(var i=0;i<16;i++)parts.push(mkPart(p.x+(Math.random()-0.5)*40,p.y+(Math.random()-0.5)*30,"feather",fc[i%fc.length]));
+  for(var i=0;i<8;i++)parts.push(mkPart(p.x,p.y,"spark","#FFA500"));
+}
+
+// --- UFO ---
+function mkUFO(){
+  var dir=Math.random()<0.5?1:-1;
+  return{x:dir===1?-60:W+60,y:H*0.15+Math.random()*(H*0.3),dir:dir,vx:(60+Math.random()*40)*dir,vy:0,
+    st:"FLY",sc:1+Math.random()*0.4,pt:100,phase:0,blinkT:0,hRx:35,hRy:18,
+    baseY:0,amp:15+Math.random()*20,freq:0.8+Math.random()*0.5};
+}
+function updUFO(u,dt){
+  if(u.st==="FLY"){
+    u.phase+=u.freq*dt;u.blinkT+=dt;
+    u.x+=u.vx*dt;u.y=u.baseY+Math.sin(u.phase)*u.amp;
+    if(u.dir===1&&u.x>W+80)u.st="GONE";
+    if(u.dir===-1&&u.x<-80)u.st="GONE";
+  } else if(u.st==="EXPLODING"){
+    u.exT+=dt;
+    if(u.exT>0.8)u.st="GONE";
+  }
+}
+function drwUFO(u){
+  if(u.st==="GONE")return;
+  c.save();c.translate(u.x,u.y);var s=u.sc;
+  if(u.st==="FLY"){
+    // beam
+    c.save();c.globalAlpha=0.15+Math.sin(u.phase*3)*0.05;
+    var bg=c.createLinearGradient(0,0,0,60*s);
+    bg.addColorStop(0,"rgba(0,255,200,0.5)");bg.addColorStop(1,"rgba(0,255,200,0)");
+    c.fillStyle=bg;c.beginPath();c.moveTo(-12*s,5*s);c.lineTo(12*s,5*s);c.lineTo(20*s,50*s);c.lineTo(-20*s,50*s);c.closePath();c.fill();c.restore();
+    // saucer body
+    c.fillStyle="#888";c.beginPath();c.ellipse(0,0,30*s,10*s,0,0,Math.PI*2);c.fill();
+    c.fillStyle="#AAA";c.beginPath();c.ellipse(0,-2*s,22*s,7*s,0,0,Math.PI*2);c.fill();
+    // dome
+    c.fillStyle="rgba(150,220,255,0.7)";c.beginPath();c.ellipse(0,-4*s,14*s,10*s,0,Math.PI,0);c.fill();
+    c.fillStyle="rgba(200,240,255,0.4)";c.beginPath();c.ellipse(-3*s,-6*s,6*s,4*s,0,Math.PI,0);c.fill();
+    // blinking lights
+    for(var i=0;i<5;i++){
+      var lx=-22*s+i*11*s,ly=3*s;
+      var on=Math.sin(u.blinkT*8+i*1.2)>0;
+      c.fillStyle=on?"#FF4444":"#440000";c.beginPath();c.arc(lx,ly,2.5*s,0,Math.PI*2);c.fill();
+      if(on){c.save();c.globalAlpha=0.5;c.fillStyle="#FF6666";c.beginPath();c.arc(lx,ly,5*s,0,Math.PI*2);c.fill();c.restore();}
+    }
+    // shadow
+    c.save();c.globalAlpha=0.15;c.fillStyle="#000";c.beginPath();c.ellipse(0,50*s,24*s,5*s,0,0,Math.PI*2);c.fill();c.restore();
+  } else if(u.st==="EXPLODING"){
+    var r=u.exT*60*s;
+    c.save();c.globalAlpha=Math.max(0,1-u.exT/0.8);
+    var g=c.createRadialGradient(0,0,0,0,0,r);
+    g.addColorStop(0,"#FFF");g.addColorStop(0.2,"#FF8800");g.addColorStop(0.5,"#FF4400");g.addColorStop(1,"rgba(255,0,0,0)");
+    c.fillStyle=g;c.beginPath();c.arc(0,0,r,0,Math.PI*2);c.fill();c.restore();
+  }
+  c.restore();
+}
+function hitTestUFO(u,px,py){
+  if(u.st!=="FLY")return false;
+  var dx=(px-u.x)/u.hRx,dy=(py-u.y)/u.hRy;
+  return dx*dx+dy*dy<=1;
+}
+function killUFO(u){
+  u.st="EXPLODING";u.exT=0;
+  sndExplosion();shake=15;flash=0.3;
+  // Big explosion particles
+  var cols=["#FF4400","#FF8800","#FFCC00","#FFFFFF","#FF0000","#FFAA00"];
+  for(var i=0;i<30;i++)parts.push(mkPart(u.x+(Math.random()-0.5)*20,u.y+(Math.random()-0.5)*15,"spark",cols[i%cols.length]));
+  for(var i=0;i<20;i++)parts.push(mkPart(u.x,u.y,"smoke","rgba(100,100,100,0.6)"));
+  for(var i=0;i<15;i++)parts.push(mkPart(u.x,u.y,"feather",cols[i%cols.length]));
+  flashes.push(mkFlash(u.x,u.y,true));
+}
+
+// --- MISSILE (homing) ---
+function mkMissile(x,y){
+  return{x:x,y:y,vx:0,vy:-200,life:5,target:null,trailT:0,sc:1};
+}
+function findNearestTarget(x,y){
+  var best=null,bd=1e9;
+  for(var i=0;i<birds.length;i++){
+    if(birds[i].st!=="FLY")continue;
+    var d=(birds[i].x-x)*(birds[i].x-x)+(birds[i].y-y)*(birds[i].y-y);
+    if(d<bd){bd=d;best=birds[i];}
+  }
+  for(var i=0;i<ufos.length;i++){
+    if(ufos[i].st!=="FLY")continue;
+    var d=(ufos[i].x-x)*(ufos[i].x-x)+(ufos[i].y-y)*(ufos[i].y-y);
+    if(d<bd){bd=d;best=ufos[i];}
+  }
+  for(var i=0;i<popChicks.length;i++){
+    if(popChicks[i].st!=="UP"&&popChicks[i].st!=="WAIT")continue;
+    var d=(popChicks[i].x-x)*(popChicks[i].x-x)+(popChicks[i].y-y)*(popChicks[i].y-y);
+    if(d<bd){bd=d;best=popChicks[i];}
+  }
+  return best;
+}
+function updMissile(m,dt){
+  m.life-=dt;
+  // Find target if none or lost
+  if(!m.target||m.target.st==="GONE"||m.target.st==="HIT"||m.target.st==="DOWN"||m.target.st==="EXPLODING")
+    m.target=findNearestTarget(m.x,m.y);
+  // Steer toward target
+  if(m.target){
+    var dx=m.target.x-m.x,dy=m.target.y-m.y,d=Math.sqrt(dx*dx+dy*dy)||1;
+    var spd=400;
+    var tvx=dx/d*spd,tvy=dy/d*spd;
+    m.vx+=(tvx-m.vx)*3*dt;m.vy+=(tvy-m.vy)*3*dt;
+  } else {
+    m.vy+=200*dt; // fall if no target
+  }
+  m.x+=m.vx*dt;m.y+=m.vy*dt;
+  // Trail
+  m.trailT+=dt;
+  if(m.trailT>0.02){m.trailT=0;parts.push(mkPart(m.x,m.y,"smoke","rgba(200,200,200,0.5)"));}
+  // Hit detection
+  if(m.target){
+    if(m.target.st==="FLY"&&hitTest(m.target,m.x,m.y)){
+      killBird(m.target);birdsHit++;score+=m.target.pt;sndHit();
+      pops.push(mkPop(m.target.x,m.target.y-30,"+"+m.target.pt,"#FF66AA"));
+      sndExplosion();shake=10;flash=0.2;
+      for(var i=0;i<15;i++)parts.push(mkPart(m.x,m.y,"spark","#FF4400"));
+      m.life=0;
+    } else if(m.target.st==="FLY"&&hitTestUFO(m.target,m.x,m.y)){
+      killUFO(m.target);birdsHit++;score+=m.target.pt;
+      pops.push(mkPop(m.target.x,m.target.y-40,"+"+m.target.pt,"#00FFAA"));
+      m.life=0;
+    } else if(hitTestPopChick&&m.target&&(m.target.st==="UP"||m.target.st==="WAIT")&&hitTestPopChick(m.target,m.x,m.y)){
+      killPopChick(m.target);birdsHit++;score+=m.target.pt;sndHit();
+      pops.push(mkPop(m.target.x,m.target.y-40,"+"+m.target.pt,"#FF8C00"));
+      sndExplosion();shake=10;flash=0.2;
+      m.life=0;
+    }
+  }
+  if(m.y>H+50||m.y<-50||m.x<-50||m.x>W+50||m.life<=0){
+    if(m.life<=0&&m.x>0&&m.x<W&&m.y>0&&m.y<H){sndExplosion();shake=6;}
+    m.life=-1;
+  }
+}
+function drwMissile(m){
+  c.save();c.translate(m.x,m.y);
+  var ang=Math.atan2(m.vy,m.vx);
+  c.rotate(ang);
+  // body
+  c.fillStyle="#666";c.beginPath();c.moveTo(8,0);c.lineTo(-6,-3);c.lineTo(-6,3);c.closePath();c.fill();
+  c.fillStyle="#CCC";c.fillRect(-4,-2,6,4);
+  // tip
+  c.fillStyle="#FF4444";c.beginPath();c.arc(8,0,2,0,Math.PI*2);c.fill();
+  // flame
+  c.fillStyle="#FF8800";c.beginPath();c.moveTo(-6,-2);c.lineTo(-14,0);c.lineTo(-6,2);c.closePath();c.fill();
+  c.fillStyle="#FFCC00";c.beginPath();c.moveTo(-6,-1.5);c.lineTo(-10,0);c.lineTo(-6,1.5);c.closePath();c.fill();
+  c.restore();
+}
+
+// --- COLOR INTERP ---
+function lerpColor(c1,c2,t){
+  var r1=parseInt(c1.substr(1,2),16),g1=parseInt(c1.substr(3,2),16),b1=parseInt(c1.substr(5,2),16);
+  var r2=parseInt(c2.substr(1,2),16),g2=parseInt(c2.substr(3,2),16),b2=parseInt(c2.substr(5,2),16);
+  var r=Math.round(r1+(r2-r1)*t),g=Math.round(g1+(g2-g1)*t),b=Math.round(b1+(b2-b1)*t);
+  return"#"+((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1);
+}
+
 // --- BACKGROUND ---
 function drwBg(){
+  // Time-of-day sky colors: dawn -> noon -> sunset
+  var t=timeOfDay; // 0=dawn, 0.5=noon, 1=sunset
+  // Sky gradient stops interpolated
+  var skyTop,skyMid,skyLow,skyHorizon;
+  if(t<0.5){
+    // Dawn to noon
+    var k=t/0.5;
+    skyTop=lerpColor("#FF9A6B","#4A90C4",k);
+    skyMid=lerpColor("#FFC8A0","#87BEDC",k);
+    skyLow=lerpColor("#FFE4D0","#C8E0F0",k);
+    skyHorizon=lerpColor("#FFD8B0","#F5E6C8",k);
+  } else {
+    // Noon to sunset
+    var k=(t-0.5)/0.5;
+    skyTop=lerpColor("#4A90C4","#3A2A5A",k);
+    skyMid=lerpColor("#87BEDC","#E87A4A",k);
+    skyLow=lerpColor("#C8E0F0","#FFB060",k);
+    skyHorizon=lerpColor("#F5E6C8","#FFD040",k);
+  }
   var sg=c.createLinearGradient(0,0,0,H*0.7);
-  sg.addColorStop(0,"#4A90C4");sg.addColorStop(0.5,"#87BEDC");sg.addColorStop(0.85,"#C8E0F0");sg.addColorStop(1,"#F5E6C8");
+  sg.addColorStop(0,skyTop);sg.addColorStop(0.5,skyMid);sg.addColorStop(0.85,skyLow);sg.addColorStop(1,skyHorizon);
   c.fillStyle=sg;c.fillRect(0,0,W,H);
-  var sx=W*0.78,sy=H*0.18,sr=45;
+  // Sun position and color based on time
+  var sx=W*(0.2+t*0.6),sy=H*(0.25-Math.sin(t*Math.PI)*0.12),sr=45;
+  var sunCol=t<0.3?"#FFD0A0":(t<0.7?"#FFF8DC":"#FF8030");
+  var sunGlow=t<0.3?"rgba(255,180,120,0.6)":(t<0.7?"rgba(255,240,180,0.6)":"rgba(255,120,50,0.5)");
   var sng=c.createRadialGradient(sx,sy,sr*0.3,sx,sy,sr*3);
-  sng.addColorStop(0,"rgba(255,240,180,0.6)");sng.addColorStop(0.5,"rgba(255,220,120,0.15)");sng.addColorStop(1,"rgba(255,200,80,0)");
+  sng.addColorStop(0,sunGlow);sng.addColorStop(0.5,"rgba(255,200,80,0.15)");sng.addColorStop(1,"rgba(255,200,80,0)");
   c.fillStyle=sng;c.beginPath();c.arc(sx,sy,sr*3,0,Math.PI*2);c.fill();
-  c.fillStyle="#FFF8DC";c.beginPath();c.arc(sx,sy,sr,0,Math.PI*2);c.fill();
+  c.fillStyle=sunCol;c.beginPath();c.arc(sx,sy,sr,0,Math.PI*2);c.fill();
   for(var i=0;i<clouds.length;i++)drwCloud(clouds[i]);
   drwMtn(bgOff*0.15,"#7A8FA6",0.22,H*0.48);
   drwMtn(bgOff*0.3,"#6B8C5A",0.18,H*0.55);
@@ -334,6 +636,58 @@ function drwTree(x,y,sz,sh){
   c.fillStyle="rgb("+(30+sh*45|0)+","+(90+sh*45|0)+","+(20+sh*20|0)+")";c.beginPath();c.arc(x,y-30*s,12*s,0,Math.PI*2);c.fill();
 }
 
+// --- WEATHER ---
+function updWeather(dt){
+  weatherT-=dt;
+  if(weatherT<=0){
+    if(weather==="clear"){weather="rain";weatherT=10+Math.random()*8;}
+    else if(weather==="rain"){weather="clear";rainbow=1;weatherT=6+Math.random()*4;}
+    else weather="clear";
+  }
+  // Rain intensity ramp
+  if(weather==="rain"){rainIntensity=Math.min(1,rainIntensity+dt*0.5);}
+  else rainIntensity=Math.max(0,rainIntensity-dt*0.5);
+  // Spawn rain drops
+  if(rainIntensity>0){
+    var n=Math.floor(rainIntensity*8);
+    for(var i=0;i<n;i++)rainDrops.push({x:Math.random()*(W+100)-50,y:-10,vy:600+Math.random()*300,vx:-80,life:1});
+  }
+  // Update rain
+  for(var i=0;i<rainDrops.length;i++){
+    var r=rainDrops[i];
+    r.x+=r.vx*dt;r.y+=r.vy*dt;
+    if(r.y>H)rainDrops[i].life=0;
+  }
+  rainDrops=rainDrops.filter(function(r){return r.life>0;});
+  // Rainbow fade
+  if(rainbow>0)rainbow=Math.max(0,rainbow-dt*0.15);
+}
+function drwRain(){
+  if(rainIntensity<0.01&&rainbow<0.01)return;
+  // Darken sky during rain
+  if(rainIntensity>0){
+    c.save();c.globalAlpha=rainIntensity*0.3;c.fillStyle="#445566";c.fillRect(0,0,W,H*0.72);c.restore();
+  }
+  // Rain drops
+  c.save();c.strokeStyle="rgba(180,200,230,0.6)";c.lineWidth=1;
+  for(var i=0;i<rainDrops.length;i++){
+    var r=rainDrops[i];
+    c.beginPath();c.moveTo(r.x,r.y);c.lineTo(r.x-3,r.y+12);c.stroke();
+  }
+  c.restore();
+}
+function drwRainbow(){
+  if(rainbow<0.01)return;
+  c.save();c.globalAlpha=rainbow*0.4;
+  var cx=W*0.5,cy=H*0.85,r=H*0.5;
+  var cols=["#FF0000","#FF7F00","#FFFF00","#00FF00","#0000FF","#4B0082","#9400D3"];
+  for(var i=0;i<cols.length;i++){
+    c.strokeStyle=cols[i];c.lineWidth=6;
+    c.beginPath();c.arc(cx,cy,r-i*6,Math.PI,0);c.stroke();
+  }
+  c.restore();
+}
+
 // --- ROUNDED RECT ---
 function rr(x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.lineTo(x+w-r,y);c.quadraticCurveTo(x+w,y,x+w,y+r);c.lineTo(x+w,y+h-r);c.quadraticCurveTo(x+w,y+h,x+w-r,y+h);c.lineTo(x+r,y+h);c.quadraticCurveTo(x,y+h,x,y+h-r);c.lineTo(x,y+r);c.quadraticCurveTo(x,y,x+r,y);c.closePath();}
 
@@ -343,7 +697,7 @@ function drwHUD(){
   c.save();c.fillStyle="rgba(0,0,0,0.45)";rr(15,15,200,70,12);c.fill();
   c.font="18px Arial, sans-serif";c.fillStyle="#AAA";c.textAlign="left";c.fillText("SCORE",30,38);
   c.font="bold 36px Arial, sans-serif";c.fillStyle="#FFD700";c.fillText(""+score,30,72);
-  if(combo>1&&!mgMode){c.font="bold 22px Arial, sans-serif";c.fillStyle=combo>=MAX_COMBO?"#FF4444":"#FF8C00";c.fillText("x"+combo,150,72);}
+  if(combo>1&&weapon===0){c.font="bold 22px Arial, sans-serif";c.fillStyle=combo>=MAX_COMBO?"#FF4444":"#FF8C00";c.fillText("x"+combo,150,72);}
   c.restore();
   // Timer
   c.save();var tw=140,th=55,tx=W/2-tw/2;
@@ -356,18 +710,17 @@ function drwHUD(){
 
   // Mode toggle button (top-right)
   drwModeBtn();
-
   // MG Heat bar (below mode button)
-  if(mgMode) drwHeatBar();
+  if(weapon===1) drwHeatBar();
 
   // Ammo
-  var maxA = mgMode ? MG_AMMO : MAX_AMMO;
-  var aw, ah = 40, ay = H - ah - 15;
-  if(mgMode){
-    aw = 200; var ax = W/2 - aw/2;
+  var w=WEAPONS[weapon],maxA=WPN_AMMO[w];
+  var aw,ah=40,ay=H-ah-15;
+  if(w==="mg"){
+    aw=200;var ax=W/2-aw/2;
     c.save();c.fillStyle="rgba(0,0,0,0.45)";rr(ax,ay,aw,ah,10);c.fill();
     if(reloading){
-      var prog=1-reloadTimer/MG_RELOAD_T;
+      var prog=1-reloadTimer/WPN_RELOAD[w];
       c.fillStyle="rgba(255,165,0,0.3)";rr(ax+3,ay+3,(aw-6)*prog,ah-6,8);c.fill();
       c.font="bold 16px Arial, sans-serif";c.fillStyle="#FFA500";c.textAlign="center";c.fillText("RELOADING...",W/2,ay+26);
     } else if(overheated){
@@ -375,14 +728,33 @@ function drwHUD(){
       c.fillStyle="rgba(255,0,0,0.3)";rr(ax+3,ay+3,(aw-6)*prog,ah-6,8);c.fill();
       c.font="bold 16px Arial, sans-serif";c.fillStyle="#FF4444";c.textAlign="center";c.fillText("OVERHEATED!",W/2,ay+26);
     } else {
-      // MG ammo bar
-      var barW = aw - 24, barH = 12, bx = ax + 12, by2 = ay + 8;
+      var barW=aw-24,barH=12,bx=ax+12,by2=ay+8;
       c.fillStyle="rgba(0,0,0,0.4)";rr(bx,by2,barW,barH,4);c.fill();
-      var fillW = (ammo/maxA)*barW;
-      var ammoCol = ammo/maxA > 0.3 ? "#4CAF50" : (ammo/maxA > 0.1 ? "#FF9800" : "#F44336");
+      var fillW=(ammo/maxA)*barW;
+      var ammoCol=ammo/maxA>0.3?"#4CAF50":(ammo/maxA>0.1?"#FF9800":"#F44336");
       c.fillStyle=ammoCol;rr(bx,by2,Math.max(0,fillW),barH,4);c.fill();
       c.font="bold 14px Arial, sans-serif";c.fillStyle="#FFF";c.textAlign="center";
       c.fillText(ammo+" / "+maxA,W/2,ay+34);
+    }
+    c.restore();
+  } else if(w==="sniper"||w==="missile"){
+    var icons=w==="sniper"?SNIPER_AMMO:MSL_AMMO;
+    aw=icons*26+20;var ax=W/2-aw/2;
+    c.save();c.fillStyle="rgba(0,0,0,0.45)";rr(ax,ay,aw,ah,10);c.fill();
+    if(reloading){
+      var prog=1-reloadTimer/WPN_RELOAD[w];
+      c.fillStyle="rgba(255,165,0,0.3)";rr(ax+3,ay+3,(aw-6)*prog,ah-6,8);c.fill();
+      c.font="bold 16px Arial, sans-serif";c.fillStyle="#FFA500";c.textAlign="center";c.fillText("RELOADING...",W/2,ay+26);
+    } else {
+      for(var i=0;i<icons;i++){
+        var bx2=ax+12+i*26,by3=ay+ah/2;
+        if(i<ammo){
+          if(w==="sniper"){c.fillStyle="#88CCFF";c.beginPath();c.moveTo(bx2,by3-8);c.lineTo(bx2+4,by3-2);c.lineTo(bx2+4,by3+6);c.lineTo(bx2-4,by3+6);c.lineTo(bx2-4,by3-2);c.closePath();c.fill();}
+          else{c.fillStyle="#FF6644";c.beginPath();c.moveTo(bx2+5,by3);c.lineTo(bx2-3,by3-4);c.lineTo(bx2-3,by3+4);c.closePath();c.fill();c.fillStyle="#FFAA00";c.fillRect(bx2-6,by3-1,3,2);}
+        } else {
+          c.strokeStyle="rgba(255,255,255,0.2)";c.lineWidth=1.5;c.beginPath();c.arc(bx2,by3,6,0,Math.PI*2);c.stroke();
+        }
+      }
     }
     c.restore();
   } else {
@@ -420,26 +792,20 @@ var modeBtnX = 0, modeBtnY = 15, modeBtnW = 150, modeBtnH = 42;
 function drwModeBtn(){
   modeBtnX = W - modeBtnW - 15;
   c.save();
-  // Button background
-  var isActive = mgMode;
-  c.fillStyle = isActive ? "rgba(255,80,20,0.6)" : "rgba(0,0,0,0.45)";
-  rr(modeBtnX, modeBtnY, modeBtnW, modeBtnH, 10);
-  c.fill();
-  // Border
-  c.strokeStyle = isActive ? "#FF6A00" : "rgba(255,255,255,0.2)";
-  c.lineWidth = isActive ? 2 : 1;
-  rr(modeBtnX, modeBtnY, modeBtnW, modeBtnH, 10);
-  c.stroke();
-  // Icon + text
-  c.textAlign = "center";
-  c.font = "bold 15px Arial, sans-serif";
-  c.fillStyle = isActive ? "#FFF" : "#CCC";
-  var label = isActive ? "MACHINE GUN [M]" : "SHOTGUN [M]";
-  c.fillText(label, modeBtnX + modeBtnW/2, modeBtnY + 18);
-  c.font = "12px Arial, sans-serif";
-  c.fillStyle = isActive ? "rgba(255,200,150,0.8)" : "rgba(200,200,200,0.5)";
-  var sub = isActive ? "Hold to fire | " + MG_AMMO + " rounds" : "Click to fire | " + MAX_AMMO + " shells";
-  c.fillText(sub, modeBtnX + modeBtnW/2, modeBtnY + 34);
+  var w=WEAPONS[weapon];
+  var colors={shotgun:["rgba(0,0,0,0.45)","rgba(255,255,255,0.2)","#CCC","rgba(200,200,200,0.5)"],
+    mg:["rgba(255,80,20,0.6)","#FF6A00","#FFF","rgba(255,200,150,0.8)"],
+    sniper:["rgba(20,60,120,0.6)","#3399FF","#FFF","rgba(150,200,255,0.8)"],
+    missile:["rgba(120,20,80,0.6)","#FF44AA","#FFF","rgba(255,150,200,0.8)"]};
+  var cl=colors[w];
+  c.fillStyle=cl[0];rr(modeBtnX,modeBtnY,modeBtnW,modeBtnH,10);c.fill();
+  c.strokeStyle=cl[1];c.lineWidth=2;rr(modeBtnX,modeBtnY,modeBtnW,modeBtnH,10);c.stroke();
+  c.textAlign="center";c.font="bold 15px Arial, sans-serif";c.fillStyle=cl[2];
+  var labels={shotgun:"SHOTGUN [M]",mg:"MACHINE GUN [M]",sniper:"SNIPER [M]",missile:"MISSILE [M]"};
+  c.fillText(labels[w],modeBtnX+modeBtnW/2,modeBtnY+18);
+  c.font="12px Arial, sans-serif";c.fillStyle=cl[3];
+  var subs={shotgun:"Click to fire | "+MAX_AMMO+" shells",mg:"Hold to fire | "+MG_AMMO+" rounds",sniper:"Click to fire | "+SNIPER_AMMO+" rounds",missile:"Click to fire | "+MSL_AMMO+" missiles"};
+  c.fillText(subs[w],modeBtnX+modeBtnW/2,modeBtnY+34);
   c.restore();
 }
 
@@ -472,12 +838,34 @@ function drwHeatBar(){
   c.restore();
 }
 
+// --- SNIPER SCOPE ---
+function drwScope(){
+  var z=sniperZoom,r=Math.min(W,H)*0.28*z;
+  c.save();
+  // Darken everything outside scope
+  c.fillStyle="rgba(0,0,0,"+(0.85*z)+")";
+  c.beginPath();c.rect(0,0,W,H);
+  c.arc(mx,my,r,0,Math.PI*2,true);c.fill();
+  // Scope ring
+  c.strokeStyle="rgba(50,150,255,"+z+")";c.lineWidth=4;
+  c.beginPath();c.arc(mx,my,r,0,Math.PI*2);c.stroke();
+  c.strokeStyle="rgba(100,200,255,"+z*0.5+")";c.lineWidth=1;
+  c.beginPath();c.arc(mx,my,r+3,0,Math.PI*2);c.stroke();
+  // Crosshair lines
+  c.strokeStyle="rgba(255,255,255,"+z*0.6+")";c.lineWidth=1;
+  c.beginPath();c.moveTo(mx-r,my);c.lineTo(mx+r,my);c.moveTo(mx,my-r);c.lineTo(mx,my+r);c.stroke();
+  // Mildots
+  c.fillStyle="rgba(255,255,255,"+z*0.5+")";
+  for(var i=1;i<=4;i++){var d=r*i/5;c.beginPath();c.arc(mx+d,my,1.5,0,Math.PI*2);c.fill();c.beginPath();c.arc(mx-d,my,1.5,0,Math.PI*2);c.fill();c.beginPath();c.arc(mx,my+d,1.5,0,Math.PI*2);c.fill();c.beginPath();c.arc(mx,my-d,1.5,0,Math.PI*2);c.fill();}
+  c.restore();
+}
+
 // --- CROSSHAIR ---
 function drwCH(){
   c.save();c.translate(mx,my);c.scale(chScale,chScale);
-  if(mgMode){
-    // MG crosshair: simpler, more tactical
-    var sz=14, gap=4;
+  var w=WEAPONS[weapon];
+  if(w==="mg"){
+    var sz=14,gap=4;
     c.strokeStyle="rgba(255,100,0,0.8)";c.lineWidth=1.5;
     c.beginPath();c.arc(0,0,sz,0,Math.PI*2);c.stroke();
     c.strokeStyle="#FFF";c.lineWidth=2;c.lineCap="round";
@@ -486,16 +874,34 @@ function drwCH(){
     c.beginPath();c.moveTo(-gap,0);c.lineTo(-sz+2,0);c.stroke();
     c.beginPath();c.moveTo(gap,0);c.lineTo(sz-2,0);c.stroke();
     c.fillStyle="#FF6600";c.beginPath();c.arc(0,0,2,0,Math.PI*2);c.fill();
-    // Heat distortion rings
-    if(heat > 50){
-      c.globalAlpha = (heat-50)/200;
-      c.strokeStyle = "#FF4400";
-      c.lineWidth = 1;
-      c.beginPath();c.arc(0,0,sz+4+Math.sin(Date.now()*0.02)*2,0,Math.PI*2);c.stroke();
-    }
+    if(heat>50){c.globalAlpha=(heat-50)/200;c.strokeStyle="#FF4400";c.lineWidth=1;c.beginPath();c.arc(0,0,sz+4+Math.sin(Date.now()*0.02)*2,0,Math.PI*2);c.stroke();}
+  } else if(w==="sniper"){
+    var sz=22,gap=7;
+    c.strokeStyle="rgba(50,150,255,0.9)";c.lineWidth=1.5;
+    c.beginPath();c.arc(0,0,sz,0,Math.PI*2);c.stroke();
+    c.strokeStyle="#FFF";c.lineWidth=1.5;c.lineCap="round";
+    c.beginPath();c.moveTo(0,-gap);c.lineTo(0,-sz+2);c.stroke();
+    c.beginPath();c.moveTo(0,gap);c.lineTo(0,sz-2);c.stroke();
+    c.beginPath();c.moveTo(-gap,0);c.lineTo(-sz+2,0);c.stroke();
+    c.beginPath();c.moveTo(gap,0);c.lineTo(sz-2,0);c.stroke();
+    // mildots
+    c.fillStyle="rgba(50,150,255,0.7)";
+    for(var i=1;i<=3;i++){c.beginPath();c.arc(0,-gap-i*5,1.2,0,Math.PI*2);c.fill();c.beginPath();c.arc(0,gap+i*5,1.2,0,Math.PI*2);c.fill();}
+    c.fillStyle="#3399FF";c.beginPath();c.arc(0,0,1.5,0,Math.PI*2);c.fill();
+  } else if(w==="missile"){
+    var sz=16;
+    c.strokeStyle="rgba(255,80,170,0.8)";c.lineWidth=2;
+    c.beginPath();c.arc(0,0,sz,0,Math.PI*2);c.stroke();
+    // Lock brackets
+    c.strokeStyle="#FF44AA";c.lineWidth=2;c.lineCap="round";
+    var b=4;
+    c.beginPath();c.moveTo(-sz,-sz+b);c.lineTo(-sz,-sz);c.lineTo(-sz+b,-sz);c.stroke();
+    c.beginPath();c.moveTo(sz-b,-sz);c.lineTo(sz,-sz);c.lineTo(sz,-sz+b);c.stroke();
+    c.beginPath();c.moveTo(sz,sz-b);c.lineTo(sz,sz);c.lineTo(sz-b,sz);c.stroke();
+    c.beginPath();c.moveTo(-sz+b,sz);c.lineTo(-sz,sz);c.lineTo(-sz,sz-b);c.stroke();
+    c.fillStyle="#FF66AA";c.beginPath();c.arc(0,0,2,0,Math.PI*2);c.fill();
   } else {
-    // Shotgun crosshair
-    var sz=18, gap=5;
+    var sz=18,gap=5;
     c.strokeStyle="rgba(255,50,50,0.7)";c.lineWidth=2;
     c.beginPath();c.arc(0,0,sz,0,Math.PI*2);c.stroke();
     c.strokeStyle="#FFF";c.lineWidth=2.5;c.lineCap="round";
@@ -538,42 +944,19 @@ function drwMenu(){
   c.fillStyle="#000";c.beginPath();c.arc(25,-17,2.2,0,Math.PI*2);c.fill();
   c.restore();
 
-  // Mode info cards
-  c.save();c.textAlign="center";
-  // Shotgun card
-  var cw=180,ch=90,cx=W/2-100,cy=H*0.62;
-  c.fillStyle="rgba(0,0,0,0.4)";rr(cx-cw/2,cy,cw,ch,10);c.fill();
-  c.strokeStyle="rgba(255,255,255,0.15)";c.lineWidth=1;rr(cx-cw/2,cy,cw,ch,10);c.stroke();
-  c.font="bold 18px Arial, sans-serif";c.fillStyle="#FFD700";c.fillText("SHOTGUN",cx,cy+24);
-  c.font="13px Arial, sans-serif";c.fillStyle="#BBB";
-  c.fillText("Click to fire",cx,cy+44);
-  c.fillText("6 shells | Combos",cx,cy+60);
-  c.fillText("High damage per shot",cx,cy+76);
-
-  // MG card
-  cx=W/2+100;
-  c.fillStyle="rgba(255,80,20,0.25)";rr(cx-cw/2,cy,cw,ch,10);c.fill();
-  c.strokeStyle="rgba(255,100,0,0.4)";c.lineWidth=1;rr(cx-cw/2,cy,cw,ch,10);c.stroke();
-  c.font="bold 18px Arial, sans-serif";c.fillStyle="#FF8C00";c.fillText("MACHINE GUN",cx,cy+24);
-  c.font="13px Arial, sans-serif";c.fillStyle="#BBB";
-  c.fillText("Hold to spray",cx,cy+44);
-  c.fillText("50 rounds | Heat bar",cx,cy+60);
-  c.fillText("No combos | Sustained fire",cx,cy+76);
-  c.restore();
-
   var pulse=0.8+Math.sin(t*4)*0.2;
   c.save();c.textAlign="center";c.globalAlpha=pulse;
   c.font="bold 28px Arial, sans-serif";c.fillStyle="#FFF";c.fillText("CLICK TO START",W/2,H*0.84);
   c.restore();
   c.save();c.textAlign="center";c.font="14px Arial, sans-serif";c.fillStyle="rgba(255,255,255,0.4)";
-  c.fillText("Press M in-game to switch weapons  |  R to reload",W/2,H*0.89);
-  c.fillText("Normal: 10pts  |  Fast: 25pts  |  Golden: 50pts  |  Big: 15pts",W/2,H*0.93);
+  c.fillText("Press M in-game to cycle weapons  |  R to reload",W/2,H*0.89);
+  c.fillText("Shotgun: 10pts  |  Fast: 25pts  |  Golden: 50pts  |  Big: 15pts  |  Pop: 30pts  |  UFO: 100pts",W/2,H*0.93);
   c.restore();
 }
 
 // --- GAME OVER ---
 function drwGO(){
-  c.save();c.translate(shX,shY);drwBg();for(var i=0;i<birds.length;i++)drwBird(birds[i]);c.restore();
+  c.save();c.translate(shX,shY);drwBg();for(var i=0;i<birds.length;i++)drwBird(birds[i]);for(var i=0;i<popChicks.length;i++)drwPopChick(popChicks[i]);for(var i=0;i<ufos.length;i++)drwUFO(ufos[i]);c.restore();
   c.fillStyle="rgba(0,0,0,0.65)";c.fillRect(0,0,W,H);
   if(finalDisp<score){finalDisp+=Math.max(1,Math.ceil((score-finalDisp)*0.08));if(finalDisp>score)finalDisp=score;}
   c.save();c.textAlign="center";
@@ -584,7 +967,7 @@ function drwGO(){
   c.fillStyle="rgba(0,0,0,0.4)";rr(px,py,pw,ph,14);c.fill();
   c.font="bold 20px Arial, sans-serif";
   var acc=shotsFired>0?Math.round(birdsHit/shotsFired*100):0;
-  var stats=[["Birds Hit",birdsHit+" / "+totalBirds],["Accuracy",acc+"%"],["Best Combo","x"+bestCombo],["Shots Fired",""+shotsFired],["Mode Used",mgMode?"Machine Gun":"Shotgun"]];
+  var stats=[["Birds Hit",birdsHit+" / "+totalBirds],["Accuracy",acc+"%"],["Best Combo","x"+bestCombo],["Shots Fired",""+shotsFired],["Weapon",WEAPONS[weapon].toUpperCase()]];
   for(var i=0;i<stats.length;i++){
     var sy=py+30+i*30;
     c.textAlign="left";c.fillStyle="#999";c.fillText(stats[i][0],px+25,sy);
@@ -614,23 +997,47 @@ function spawnBird(){
 function doShoot(x,y){
   if(overheated){sndEmpty();return;}
   if(reloading){sndEmpty();return;}
-  var maxA = mgMode ? MG_AMMO : MAX_AMMO;
+  var w=WEAPONS[weapon],maxA=WPN_AMMO[w];
   if(ammo<=0){sndEmpty();startReload();return;}
+
+  if(w==="missile"){
+    ammo--;shotsFired++;
+    sndMissile();
+    var m=mkMissile(x,y+20);
+    m.target=findNearestTarget(x,y);
+    if(m.target)sndLock();
+    missiles.push(m);
+    shake=3;flash=0.05;chScale=1.3;
+    if(ammo<=0)startReload();
+    return;
+  }
 
   ammo--;shotsFired++;
 
-  if(mgMode){
+  if(w==="mg"){
     sndMG();
     heat+=HEAT_PER_SHOT;
     if(heat>=MAX_HEAT){heat=MAX_HEAT;overheated=true;overheatTimer=OVERHEAT_PENALTY;sndOverheat();}
     shake=2;flash=0.06;chScale=1.25;
     flashes.push(mkFlash(x+(Math.random()-0.5)*6,y+(Math.random()-0.5)*6,true));
-    // Shell casing
     parts.push(mkPart(x-15,y+20,"casing","#D4A030"));
     if(Math.random()<0.3)parts.push(mkPart(x,y,"smoke","rgba(150,150,150,0.4)"));
-    // Slight spread for MG
-    var sx = x+(Math.random()-0.5)*16, sy = y+(Math.random()-0.5)*16;
+    var sx=x+(Math.random()-0.5)*16,sy=y+(Math.random()-0.5)*16;
     checkHit(sx,sy);
+  } else if(w==="sniper"){
+    sndSniper();
+    shake=8;flash=0.2;chScale=2.0;
+    flashes.push(mkFlash(x,y,false));
+    // Sniper: precise, pierces (hits all birds along line)
+    for(var i=birds.length-1;i>=0;i--){
+      if(hitTest(birds[i],x,y)){killBird(birds[i]);birdsHit++;score+=birds[i].pt+50;combo=0;sndHit();pops.push(mkPop(birds[i].x,birds[i].y-30,"+"+(birds[i].pt+50),"#00FF88"));}
+    }
+    var ufoHit=null;
+    for(var i=ufos.length-1;i>=0;i--){if(hitTestUFO(ufos[i],x,y)){ufoHit=ufos[i];break;}}
+    if(ufoHit){killUFO(ufoHit);birdsHit++;score+=ufoHit.pt+50;pops.push(mkPop(ufoHit.x,ufoHit.y-40,"+"+(ufoHit.pt+50),"#00FF88"));}
+    var popHit2=null;
+    for(var i=popChicks.length-1;i>=0;i--){if(hitTestPopChick(popChicks[i],x,y)){popHit2=popChicks[i];break;}}
+    if(popHit2){killPopChick(popHit2);birdsHit++;score+=popHit2.pt+50;combo=0;sndHit();pops.push(mkPop(popHit2.x,popHit2.y-40,"+"+(popHit2.pt+50),"#00FF88"));}
   } else {
     sndShot();
     shake=4;flash=0.12;chScale=1.6;
@@ -644,10 +1051,19 @@ function doShoot(x,y){
 function checkHit(x,y){
   var hit=null;
   for(var i=birds.length-1;i>=0;i--){if(hitTest(birds[i],x,y)){hit=birds[i];break;}}
-  if(hit){
+  // Check pop-up chickens
+  var popHit=null;
+  for(var i=popChicks.length-1;i>=0;i--){if(hitTestPopChick(popChicks[i],x,y)){popHit=popChicks[i];break;}}
+  // Check UFOs
+  var ufoHit=null;
+  for(var i=ufos.length-1;i>=0;i--){if(hitTestUFO(ufos[i],x,y)){ufoHit=ufos[i];break;}}
+  if(ufoHit){
+    killUFO(ufoHit);birdsHit++;
+    score+=ufoHit.pt;combo=0;
+    pops.push(mkPop(ufoHit.x,ufoHit.y-40,"+"+ufoHit.pt,"#00FFAA"));
+  } else if(hit){
     killBird(hit);birdsHit++;
-    if(mgMode){
-      // MG: no combo, base points only
+    if(weapon===1){
       score+=hit.pt;
     } else {
       combo=Math.min(combo+1,MAX_COMBO);
@@ -657,38 +1073,53 @@ function checkHit(x,y){
       if(hit.type==="golden")pc="#FFEC8B";else if(hit.type==="fast")pc="#CCC";
       pops.push(mkPop(hit.x,hit.y-30,pt,pc));
     }
-    sndHit();shake=mgMode?3:6;
-    if(mgMode)pops.push(mkPop(hit.x,hit.y-30,"+"+hit.pt,"#FFA500"));
+    sndHit();shake=weapon===1?3:6;
+    if(weapon===1)pops.push(mkPop(hit.x,hit.y-30,"+"+hit.pt,"#FFA500"));
+  } else if(popHit){
+    killPopChick(popHit);birdsHit++;
+    if(weapon===1){score+=popHit.pt;}
+    else{
+      combo=Math.min(combo+1,MAX_COMBO);
+      if(combo>bestCombo)bestCombo=combo;
+      var pts=popHit.pt*combo;score+=pts;
+      var pt="+"+pts;if(combo>1)pt+=" x"+combo;
+      pops.push(mkPop(popHit.x,popHit.y-40,pt,"#FF8C00"));
+    }
+    sndHit();shake=weapon===1?4:8;
+    if(weapon===1)pops.push(mkPop(popHit.x,popHit.y-40,"+"+popHit.pt,"#FFA500"));
   } else {
-    if(!mgMode)combo=0;
+    if(weapon===0)combo=0;
   }
 }
 
 function startReload(){
   if(reloading||overheated)return;
   reloading=true;
-  reloadTimer=mgMode?MG_RELOAD_T:RELOAD_T;
+  reloadTimer=WPN_RELOAD[WEAPONS[weapon]];
   sndReload();
 }
 
-function toggleMode(){
+function cycleWeapon(){
   if(state!=="PLAYING")return;
-  mgMode=!mgMode;
+  weapon=(weapon+1)%WEAPONS.length;
   reloading=false;reloadTimer=0;
   overheated=false;overheatTimer=0;heat=0;
-  ammo=mgMode?MG_AMMO:MAX_AMMO;
-  combo=0;fireTimer=0;
+  ammo=WPN_AMMO[WEAPONS[weapon]];
+  combo=0;fireTimer=0;sniperZoom=0;
   sndToggle();
 }
 
 // --- INIT ---
 function initGame(){
-  score=0;timeLeft=DURATION;ammo=mgMode?MG_AMMO:MAX_AMMO;
+  score=0;timeLeft=DURATION;ammo=WPN_AMMO[WEAPONS[weapon]];
   reloading=false;reloadTimer=0;combo=0;bestCombo=0;
   shotsFired=0;birdsHit=0;totalBirds=0;
-  birds=[];parts=[];pops=[];flashes=[];shellCasings=[];
+  birds=[];parts=[];pops=[];flashes=[];shellCasings=[];popChicks=[];ufos=[];missiles=[];
   spawnT=0;spawnI=1.8;flash=0;shake=0;goTimer=0;finalDisp=0;
   heat=0;overheated=false;overheatTimer=0;fireTimer=0;mDown=false;
+  popSpawnT=6+Math.random()*4;ufoSpawnT=12+Math.random()*8;sniperZoom=0;
+  weather="clear";weatherT=15;rainDrops=[];rainbow=0;rainIntensity=0;
+  timeOfDay=0;
 }
 
 // --- UPDATE ---
@@ -706,32 +1137,47 @@ function update(dt){
     if(spawnT<=0){spawnBird();spawnT=spawnI*(0.7+Math.random()*0.6);}
 
     // MG continuous fire
-    if(mgMode && mDown && !reloading && !overheated && ammo>0){
+    if(weapon===1 && mDown && !reloading && !overheated && ammo>0){
       fireTimer-=dt;
-      if(fireTimer<=0){
-        doShoot(mx,my);
-        fireTimer=MG_FIRE_RATE;
-      }
+      if(fireTimer<=0){doShoot(mx,my);fireTimer=MG_FIRE_RATE;}
     }
+    // Sniper zoom
+    if(weapon===2){sniperZoom=Math.min(1,sniperZoom+dt*4);}
+    else sniperZoom=Math.max(0,sniperZoom-dt*4);
     // MG heat cooldown
-    if(mgMode && !mDown && !overheated){
-      heat=Math.max(0,heat-HEAT_COOL_RATE*dt);
-    }
+    if(weapon===1 && !mDown && !overheated){heat=Math.max(0,heat-HEAT_COOL_RATE*dt);}
     // Overheat penalty
     if(overheated){
       overheatTimer-=dt;
       heat=Math.max(0,heat-HEAT_COOL_RATE*0.5*dt);
       if(overheatTimer<=0){overheated=false;heat=0;}
     }
+    // Missiles
+    for(var i=0;i<missiles.length;i++)updMissile(missiles[i],dt);
+    missiles=missiles.filter(function(m){return m.life>0;});
+    // Weather
+    updWeather(dt);
+    // Time of day: 0->1 over DURATION seconds
+    timeOfDay=(DURATION-timeLeft)/DURATION;
 
     for(var i=0;i<birds.length;i++)updBird(birds[i],dt);
     birds=birds.filter(function(b){return b.st!=="GONE";});
+    // Pop-up chickens
+    popSpawnT-=dt;
+    if(popSpawnT<=0){popChicks.push(mkPopChick());popSpawnT=8+Math.random()*10;}
+    for(var i=0;i<popChicks.length;i++)updPopChick(popChicks[i],dt);
+    popChicks=popChicks.filter(function(p){return p.st!=="GONE";});
+    // UFOs
+    ufoSpawnT-=dt;
+    if(ufoSpawnT<=0&&ufos.length<2){var u=mkUFO();u.baseY=u.y;ufos.push(u);ufoSpawnT=15+Math.random()*15;}
+    for(var i=0;i<ufos.length;i++)updUFO(ufos[i],dt);
+    ufos=ufos.filter(function(u){return u.st!=="GONE";});
     if(reloading){
       reloadTimer-=dt;
-      if(reloadTimer<=0){reloading=false;ammo=mgMode?MG_AMMO:MAX_AMMO;sndReload();}
+      if(reloadTimer<=0){reloading=false;ammo=WPN_AMMO[WEAPONS[weapon]];sndReload();}
     }
   } else if(state==="MENU"){bgOff+=20*dt;}
-  else if(state==="GAMEOVER"){bgOff+=10*dt;goTimer+=dt;for(var i=0;i<birds.length;i++)updBird(birds[i],dt);birds=birds.filter(function(b){return b.st!=="GONE";});}
+  else if(state==="GAMEOVER"){bgOff+=10*dt;goTimer+=dt;for(var i=0;i<birds.length;i++)updBird(birds[i],dt);birds=birds.filter(function(b){return b.st!=="GONE";});for(var i=0;i<popChicks.length;i++)updPopChick(popChicks[i],dt);popChicks=popChicks.filter(function(p){return p.st!=="GONE";});for(var i=0;i<ufos.length;i++)updUFO(ufos[i],dt);ufos=ufos.filter(function(u){return u.st!=="GONE";});}
 
   for(var i=0;i<parts.length;i++)updPart(parts[i],dt);parts=parts.filter(function(p){return p.life>0;});
   for(var i=0;i<pops.length;i++)updPop(pops[i],dt);pops=pops.filter(function(p){return p.life>0;});
@@ -749,11 +1195,16 @@ function draw(){
     c.save();c.translate(shX,shY);drwBg();
     birds.sort(function(a,b){return a.y-b.y;});
     for(var i=0;i<birds.length;i++)drwBird(birds[i]);
+    for(var i=0;i<popChicks.length;i++)drwPopChick(popChicks[i]);
+    for(var i=0;i<ufos.length;i++)drwUFO(ufos[i]);
+    for(var i=0;i<missiles.length;i++)drwMissile(missiles[i]);
     for(var i=0;i<parts.length;i++)drwPart(parts[i]);
     for(var i=0;i<flashes.length;i++)drwFlash(flashes[i]);
     for(var i=0;i<pops.length;i++)drwPop(pops[i]);
     c.restore();
+    drwRain();drwRainbow();
     if(flash>0){c.fillStyle="rgba(255,255,255,"+flash+")";c.fillRect(0,0,W,H);}
+    if(sniperZoom>0.01)drwScope();
     drwHUD();drwCH();
   }
   else if(state==="GAMEOVER"){drwGO();drwCH();}
@@ -777,10 +1228,9 @@ cv.addEventListener("mousedown",function(e){
   mDown=true;
   if(state==="MENU"){state="PLAYING";initGame();}
   else if(state==="PLAYING"){
-    if(isOnModeBtn(e.clientX,e.clientY)){toggleMode();mDown=false;return;}
-    if(!mgMode){doShoot(e.clientX,e.clientY);}
-    // MG fires on hold via update loop, but fire first shot immediately
-    else{fireTimer=0;doShoot(e.clientX,e.clientY);fireTimer=MG_FIRE_RATE;}
+    if(isOnModeBtn(e.clientX,e.clientY)){cycleWeapon();mDown=false;return;}
+    if(weapon===1){fireTimer=0;doShoot(e.clientX,e.clientY);fireTimer=MG_FIRE_RATE;}
+    else doShoot(e.clientX,e.clientY);
   }
   else if(state==="GAMEOVER"&&goTimer>1){state="PLAYING";initGame();}
 });
@@ -793,9 +1243,9 @@ cv.addEventListener("touchstart",function(e){
   var t=e.touches[0];mx=t.clientX;my=t.clientY;mDown=true;
   if(state==="MENU"){state="PLAYING";initGame();}
   else if(state==="PLAYING"){
-    if(isOnModeBtn(t.clientX,t.clientY)){toggleMode();mDown=false;return;}
-    if(!mgMode){doShoot(t.clientX,t.clientY);}
-    else{fireTimer=0;doShoot(t.clientX,t.clientY);fireTimer=MG_FIRE_RATE;}
+    if(isOnModeBtn(t.clientX,t.clientY)){cycleWeapon();mDown=false;return;}
+    if(weapon===1){fireTimer=0;doShoot(t.clientX,t.clientY);fireTimer=MG_FIRE_RATE;}
+    else doShoot(t.clientX,t.clientY);
   }
   else if(state==="GAMEOVER"&&goTimer>1){state="PLAYING";initGame();}
 },{passive:false});
@@ -805,8 +1255,8 @@ cv.addEventListener("touchend",function(e){e.preventDefault();mDown=false;},{pas
 cv.addEventListener("touchcancel",function(){mDown=false;});
 
 window.addEventListener("keydown",function(e){
-  if((e.key==="r"||e.key==="R")&&state==="PLAYING"&&!reloading&&!overheated&&ammo<(mgMode?MG_AMMO:MAX_AMMO))startReload();
-  if((e.key==="m"||e.key==="M")&&state==="PLAYING")toggleMode();
+  if((e.key==="r"||e.key==="R")&&state==="PLAYING"&&!reloading&&!overheated&&ammo<WPN_AMMO[WEAPONS[weapon]])startReload();
+  if((e.key==="m"||e.key==="M")&&state==="PLAYING")cycleWeapon();
 });
 cv.addEventListener("contextmenu",function(e){e.preventDefault();});
 </script>
